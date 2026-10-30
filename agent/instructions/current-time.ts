@@ -6,13 +6,19 @@ import { defineDynamic, defineInstructions } from "eve/instructions";
  * @remarks
  * Previous timestamps remain unchanged, preserving the existing prompt
  * prefix for caching. The timestamp represents turn start, not a live clock.
+ *
+ * @param ctx - Current dynamic instruction context.
+ * @returns User-role time instructions for the active turn, or null before one starts.
  */
-export default defineDynamic({
-  events: {
-    "turn.started": () =>
-      defineInstructions({
-        content: `Current date and time: ${new Date().toISOString()} (UTC).`,
-        role: "user",
-      }),
-  },
+export default defineDynamic(async (ctx) => {
+  if (!ctx.turn) {
+    return null;
+  }
+  const timestamp = await ctx.memo(["turn-started-at", ctx.turn.id], () =>
+    new Date().toISOString()
+  );
+  return defineInstructions({
+    content: `Current date and time: ${timestamp} (UTC).`,
+    role: "user",
+  });
 });
