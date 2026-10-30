@@ -1,3 +1,4 @@
+import { turn } from "eve/events";
 import { defineDynamic, defineInstructions } from "eve/instructions";
 
 /**
@@ -10,15 +11,12 @@ import { defineDynamic, defineInstructions } from "eve/instructions";
  * @param ctx - Current dynamic instruction context.
  * @returns User-role time instructions for the active turn, or null before one starts.
  */
-export default defineDynamic(async (ctx) => {
-  if (!ctx.turn) {
-    return null;
-  }
-  const timestamp = await ctx.memo(["turn-started-at", ctx.turn.id], () =>
-    new Date().toISOString()
-  );
-  return defineInstructions({
-    content: `Current date and time: ${timestamp} (UTC).`,
-    role: "user",
-  });
+export default defineDynamic((ctx) => {
+  const startedAt = ctx.turn && turn(ctx.view, ctx.turn.id)?.startedAt;
+  return startedAt
+    ? defineInstructions({
+        content: `Current date and time: ${startedAt} (UTC).`,
+        role: "user",
+      })
+    : null;
 });

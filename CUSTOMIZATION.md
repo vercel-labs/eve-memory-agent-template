@@ -52,7 +52,7 @@ Keep the existing Memory section alongside your own guidance. It tells the agent
 
 Change `model` in [agent/agent.ts](agent/agent.ts) to use another [AI Gateway model](https://vercel.com/ai-gateway/models). The template uses `openai/gpt-6.1-sol-fast` and authenticates with Vercel OIDC. For other hosting environments, see [AI Gateway authentication](https://vercel.com/docs/ai-gateway/authentication-and-byok).
 
-The same file limits each session to `300_000` input tokens through `maxInputTokensPerSession`. Each model call counts the input it sends, including earlier messages in the thread, so a long Slack thread reaches the limit sooner than its length suggests. When a session crosses the limit, eve pauses it and asks whether to continue, and **Approve** grants another window of the same size. Increase the limit if threads pause too often. See [eve's agent configuration](https://eve.dev/docs/agent-config) for output and cost limits.
+The same file limits each usage window to `300_000` input tokens through `limits.sessionUsage`. `inputTokens` counts all input, including prompt-cache reads and writes, so a long Slack thread reaches the limit sooner than its length suggests. A model call can cross the limit before eve receives its usage. Before the next model call, eve pauses and asks whether to continue. **Continue** starts another window of the same size. Increase the limit if threads pause too often. See [eve's agent configuration](https://eve.dev/docs/agent-config) for output and cost limits.
 
 The [current-time instructions](agent/instructions/current-time.ts) add a UTC timestamp at the start of each turn, which covers one message the agent responds to and the work it does for it. If people save preferences that depend on dates or times, such as "I work 9 to 5 Pacific", explain the intended timezone in your instructions.
 
@@ -155,12 +155,9 @@ The issuer identifies the Slack workspace that installed the agent. The model ge
 
 Any member of a workspace can change workspace and channel memory. To limit who can, [build your own provider](#build-your-own-memory-provider) whose save tool requires [approval](https://eve.dev/docs/human-in-the-loop) or checks the user's verified Slack ID.
 
-### Namespace and visibility
+### Namespace
 
-Two other slot settings work with scope:
-
-- `namespace` separates memory domains before scope is applied. The default combines the slot name with your Vercel project and environment, so preview branches don't share memory with production. To keep a new slot's memory reachable if you later rename its file, give it its own explicit string from its first write, such as `namespace: "acme-support-v1-user-preferences"`. eve uses a custom namespace exactly as written, so two slots that share one string and resolve to the same scope also share memory.
-- `visibility` controls what the model sees when a slot's scope changes within one session. The default `"scope"` hides entries recalled for an earlier scope. In a Slack thread with several people, user memory changes scope with each speaker, so one person's preferences drop out of context when someone else replies. Keep the default unless everyone in a session should see each other's memory.
+`namespace` works with scope to separate memory domains before scope is applied. The default combines the slot name with your Vercel project and environment, so preview branches don't share memory with production. To keep a new slot's memory reachable if you later rename its file, give it its own explicit string from its first write, such as `namespace: "acme-support-v1-user-preferences"`. eve uses a custom namespace exactly as written, so two slots that share one string and resolve to the same scope also share memory.
 
 See [eve's memory documentation](https://eve.dev/docs/memory#scope) for scope resolvers and the [multi-tenant memory pattern](https://eve.dev/docs/patterns/multi-tenant-memory) for scoping memory by tenant and user in non-Slack channels.
 
@@ -176,7 +173,7 @@ Each slot binds a provider to a scope. eve owns the slot and decides when memory
 | Attribution and supersession of recalled messages | Retention and deletion |
 | Qualifying provider tools as `<slot>__<tool>` | Which model-facing tools to offer |
 
-Because of this split, changing a slot's `provider` leaves its scope, namespace, and visibility unchanged. Recalled content always reaches the model as user-role messages, never as system instructions.
+Because of this split, changing a slot's `provider` leaves its scope and namespace unchanged. Recalled content always reaches the model as user-role messages, never as system instructions.
 
 ### Compare providers
 
@@ -292,7 +289,7 @@ Create a provider with `defineMemoryProvider()` from `eve/memory`. It accepts th
 
 | Surface | Handlers | Responsibility |
 | --- | --- | --- |
-| `recall` | `"turn.started"` (required), `"compaction.completed"` | Return messages to place in model context |
+| `recall` | `"turn.started"` (required) | Return messages to place in model context |
 | `capture` | `"turn.completed"`, `"compaction.requested"` | Observe settled history and write to the store |
 | `tools` | One function | Return model-facing operations bound to the locked scope |
 
@@ -316,7 +313,6 @@ When a session's turns approach the model's context window, eve compacts them by
 | `turn.started` | `recall["turn.started"]` | History before recall. The new message is in `turn.input`. | `turn`, with the turn `id`, `input` messages, and `sequence` |
 | `turn.completed` | `capture["turn.completed"]` | Settled history after a successful turn | `turn`, with the turn `id`, `input` messages, and `sequence` |
 | `compaction.requested` | `capture["compaction.requested"]` | History before the checkpoint changes | `compaction.modelId` and `compaction.usageInputTokens`. `turn` is `null` for standalone compaction. |
-| `compaction.completed` | `recall["compaction.completed"]` | The checkpoint plus the retained recalled messages | `compaction.modelId`. `turn` may be `null`. |
 
 ### 1. Connect your store
 
@@ -364,8 +360,6 @@ Return `{ messages }`, `null`, or `undefined`. Each message needs non-blank `con
 | Same `id` as before, same content | No change |
 | No `id` | Accumulates, even when the content repeats |
 | Earlier `id` left out of a result | The earlier message stays, because recall can't retract |
-
-Implement `recall["compaction.completed"]` to refresh context after eve compacts a long session. `ctx.turn` may be `null` in that phase, so don't read `ctx.turn.input` there without a fallback.
 
 ### 3. Capture turns and expose tools
 
@@ -483,7 +477,6 @@ How a handler failure affects the turn depends on when the handler runs:
 | `recall["turn.started"]` | The turn fails before the model call, and no slot's recalled messages are saved. If the turn was already cancelled, eve treats the error as cancellation. |
 | `capture["turn.completed"]` | eve logs the error after the response and leaves the completed turn unchanged. |
 | `capture["compaction.requested"]` | Session history stays unchanged. |
-| `recall["compaction.completed"]` | Automatic compaction fails the turn. Standalone compaction logs the error and returns the session to waiting, because the checkpoint is already written. |
 | `tools()` | eve logs the error and omits the provider's tools for that turn. |
 
 | Symptom | Cause and fix |
