@@ -36,15 +36,11 @@ Memory is tied to the verified Slack user and channel, never to anything the mod
 
 On Vercel, memory is stored in the connected private Blob store. During local development with `pnpm dev`, memory lasts only while the development server runs and is cleared each time you restart it.
 
-## Slack identity
+## Slack identity and replies
 
-Before responding to each message, the agent looks up the Slack profile of everyone involved in the thread, including people who are mentioned. It adds their names and profile images to the conversation as context, but never email addresses.
+The agent answers when someone mentions it or sends it a DM. Once it's part of a thread, it also sees replies that don't mention it and stays quiet unless a reply is meant for it. Messages from bots and Slack workflows are ignored.
 
-To skip profile lookups for selected bot or service accounts, set the `SLACK_IDENTITY_EXCLUDED_USER_IDS` environment variable to a comma-separated list of their Slack user IDs:
-
-```dotenv
-SLACK_IDENTITY_EXCLUDED_USER_IDS=U0123456789,U0987654321
-```
+eve looks up the Slack profile of each person who posts and adds their display name and real name to the conversation as context, but never email addresses. See [CUSTOMIZATION.md](CUSTOMIZATION.md#change-what-the-agent-knows-about-slack-users) to change what the agent knows about people and [when it replies](CUSTOMIZATION.md#change-when-the-agent-replies-in-slack).
 
 ## Local development
 
@@ -86,6 +82,7 @@ vercel deploy --prod
 | Who shares a memory | `scope` in each memory file |
 | When to save, and response style | [agent/instructions.md](agent/instructions.md) |
 | Model and session limits | [agent/agent.ts](agent/agent.ts) |
+| When the agent replies in Slack, and which profile details it sees | [agent/channels/slack.ts](agent/channels/slack.ts) |
 
 For more ways to customize the agent, including how to build your own memory provider, see [CUSTOMIZATION.md](CUSTOMIZATION.md).
 
