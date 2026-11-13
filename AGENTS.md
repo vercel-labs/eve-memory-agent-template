@@ -13,11 +13,10 @@ These instructions are for agents maintaining the repository. The assistant's be
 | Model and session limits | `agent/agent.ts` |
 | Memory slots | `agent/memory/user-preferences.ts` and `agent/memory/channel-preferences.ts` |
 | Channel memory scope | `agent/lib/memory/scope.ts` |
-| Slack channel, sender auth, and profile lookups | `agent/channels/slack.ts` and `agent/lib/integrations/slack/` |
+| Slack channel, the messages that start turns, sender auth, and profile names | `agent/channels/slack.ts` |
 | HTTP channel and caller auth | `agent/channels/eve.ts` |
-| Built-in tool overrides | `agent/tools/` |
+| Built-in tool overrides, including `no_reply` | `agent/tools/` |
 | Local and hosted sandbox selection | `agent/sandbox.ts` |
-| Shared test fixtures | `agent/lib/testing/` |
 | Setup and customization guidance | `README.md`, `CUSTOMIZATION.md`, and `.env.example` |
 
 Keep the template focused on memory. Features such as Slack tables, charts, or approval cards belong in a project built from the template, not in the template itself. Optional extensions, such as shared reference files on Vercel Drives, are documented in `CUSTOMIZATION.md` and are not enabled by default.
@@ -41,7 +40,9 @@ Prefer native integrations. When installation is part of the task, use `pnpm exe
 
 ## Implementation conventions
 
-Keep files in `agent/tools/` small, with reusable behavior in `agent/lib/`. The template's tool files only disable eve built-ins. Disabling `write_file` steers the model toward the memory tools. The web and delegation tools are removed because a memory agent doesn't need them and they would give planted instructions a way to send data out. `bash` and `read_file` stay enabled for the Drives extension, and `agent/sandbox.ts` denies outbound network access when deployed. The filename exemption for `agent/tools/*.ts` in `oxlint.config.ts` exists because eve matches built-in tools by filename.
+Keep files in `agent/tools/` small, with reusable behavior in `agent/lib/`. The template's tool files only disable eve built-ins or enable `no_reply`, which the agent uses to stay quiet on Slack thread replies and edits that aren't meant for it. Disabling `write_file` steers the model toward the memory tools. The web and delegation tools are removed because a memory agent doesn't need them and they would give planted instructions a way to send data out. `bash` and `read_file` stay enabled for the Drives extension, and `agent/sandbox.ts` denies outbound network access when deployed. The filename exemption for `agent/tools/*.ts` in `oxlint.config.ts` exists because eve matches built-in tools by filename.
+
+The Slack channel follows the reply-without-a-mention recipe in `node_modules/eve/docs/channels/slack/index.mdx`. Keep its first check, which drops bot and authorless messages, so every turn runs as a human Slack principal. Never put message text or profile names in its `guidance`.
 
 Preserve the strict TypeScript and Ultracite configuration. Do not disable rules to make a port or refactor pass.
 
@@ -53,7 +54,7 @@ pnpm enforces a minimum release age for dependencies. Do not bypass the policy o
 
 ## Memory behavior to preserve
 
-- Resolve every memory scope from authenticated session details, never from model input, message text, or Slack profile names. Profile lookups in `identity.ts` add names and images for the model, never emails, and do not establish identity or authorization.
+- Resolve every memory scope from authenticated session details, never from model input, message text, or Slack profile names. The Slack channel's `messageContext.users` setting adds sender names for the model, never emails, and the names, including the `full_name` auth attribute, do not establish identity or authorization.
 - Return `null` from a scope when the caller doesn't qualify. eve then skips the slot and its tools; never fall back to a shared scope.
 - `bySlackChannel` accepts only Slack webhook user principals with a `slack:<team>` issuer and a public or private channel ID. It disables channel memory in one-to-one DMs and for bots, and returns the shared `local-dev` scope during local development. Update `scope.test.ts` with any change to these rules.
 - Both template scopes include the Slack installation issuer, so memory from different workspaces never shares storage. Keep that boundary in new scopes.
