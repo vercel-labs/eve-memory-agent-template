@@ -10,6 +10,9 @@ export default defineConfig({
   ignorePatterns: core.ignorePatterns,
   jsPlugins: jsPlugins.jsPlugins,
   overrides: [
-    { files: ["agent/tools/*.ts"], rules: { "unicorn/filename-case": "off" } },
+    {
+      files: ["agent/tools/*.ts", "e2e/agent/tools/*.ts"],
+      rules: { "unicorn/filename-case": "off" },
+    },
   ],
 });

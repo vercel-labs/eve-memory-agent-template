@@ -12,6 +12,7 @@ Choose the task you want to complete:
 - [Use more than one memory provider](#use-more-than-one-memory-provider)
 - [Build your own memory provider](#build-your-own-memory-provider)
 - [Control Slack identity lookups](#control-slack-identity-lookups)
+- [Respond to edited messages](#respond-to-edited-messages)
 - [Give the agent shared reference files](#give-the-agent-shared-reference-files)
 - [Test and deploy your changes](#test-and-deploy-your-changes)
 - [Set up an existing project](#set-up-an-existing-project)
@@ -50,9 +51,9 @@ Keep the existing Memory section alongside your own guidance. It tells the agent
 
 ### Model and token limits
 
-Change `model` in [agent/agent.ts](agent/agent.ts) to use another [AI Gateway model](https://vercel.com/ai-gateway/models). The template uses `openai/gpt-6.1-sol-fast` and authenticates with Vercel OIDC. For other hosting environments, see [AI Gateway authentication](https://vercel.com/docs/ai-gateway/authentication-and-byok).
+Change `model` in [agent/agent.ts](agent/agent.ts) to use another [AI Gateway model](https://vercel.com/ai-gateway/models). The template uses `anthropic/claude-fable-5.2` and authenticates with Vercel OIDC. Anthropic doesn't support Zero Data Retention for this model, so [AI Gateway returns an error](https://vercel.com/changelog/claude-fable-5-2-now-available-on-ai-gateway) for teams that have it turned on. Choose another model if that applies to your team. When you change the model, update the ID that [agent/agent.test.ts](agent/agent.test.ts) expects. For other hosting environments, see [AI Gateway authentication](https://vercel.com/docs/ai-gateway/authentication-and-byok).
 
-The same file limits each session to `300_000` input tokens through `maxInputTokensPerSession`. Each model call counts the input it sends, including earlier messages in the thread, so a long Slack thread reaches the limit sooner than its length suggests. When a session crosses the limit, eve pauses it and asks whether to continue, and **Approve** grants another window of the same size. Increase the limit if threads pause too often. See [eve's agent configuration](https://eve.dev/docs/agent-config) for output and cost limits.
+The same file limits each session to `300_000` input tokens through `limits.sessionUsage`, using the check in [agent/lib/limits.ts](agent/lib/limits.ts). Each model call counts the input it sends, including earlier messages in the thread, so a long Slack thread reaches the limit sooner than its length suggests. When a session crosses the limit, eve pauses it and asks whether to continue, and **Approve** grants another window of the same size. Increase `SESSION_INPUT_TOKEN_BUDGET` in that file if threads pause too often. See [eve's agent configuration](https://eve.dev/docs/agent-config#runtime-limits) to limit output tokens or cost as well.
 
 The [current-time instructions](agent/instructions/current-time.ts) add a UTC timestamp at the start of each turn, which covers one message the agent responds to and the work it does for it. If people save preferences that depend on dates or times, such as "I work 9 to 5 Pacific", explain the intended timezone in your instructions.
 
@@ -65,7 +66,7 @@ The agent has two memories, each defined by a file in [agent/memory/](agent/memo
 | User preferences | [user-preferences.ts](agent/memory/user-preferences.ts) | One Slack user, across every channel and DM |
 | Channel preferences | [channel-preferences.ts](agent/memory/channel-preferences.ts) | Everyone in one Slack channel |
 
-Both use eve's built-in file memory. Before each turn, eve recalls each slot's saved entries into the conversation. The model saves and removes entries with each slot's own tools:
+Both use eve's built-in file memory. Before each turn, eve recalls each slot's saved entries and gives them to the model. The model saves and removes entries with each slot's own tools:
 
 | Tool | What it does |
 | --- | --- |
@@ -155,12 +156,12 @@ The issuer identifies the Slack workspace that installed the agent. The model ge
 
 Any member of a workspace can change workspace and channel memory. To limit who can, [build your own provider](#build-your-own-memory-provider) whose save tool requires [approval](https://eve.dev/docs/human-in-the-loop) or checks the user's verified Slack ID.
 
-### Namespace and visibility
+### Namespace and scope changes
 
-Two other slot settings work with scope:
+Two other details work with scope:
 
 - `namespace` separates memory domains before scope is applied. The default combines the slot name with your Vercel project and environment, so preview branches don't share memory with production. To keep a new slot's memory reachable if you later rename its file, give it its own explicit string from its first write, such as `namespace: "acme-support-v1-user-preferences"`. eve uses a custom namespace exactly as written, so two slots that share one string and resolve to the same scope also share memory.
-- `visibility` controls what the model sees when a slot's scope changes within one session. The default `"scope"` hides entries recalled for an earlier scope. In a Slack thread with several people, user memory changes scope with each speaker, so one person's preferences drop out of context when someone else replies. Keep the default unless everyone in a session should see each other's memory.
+- When a slot's scope changes within one session, eve removes the entries it recalled for the earlier scope. In a Slack thread with several people, user memory changes scope with each speaker, so one person's preferences drop out of context when someone else replies. Earlier replies from the agent can still repeat what it recalled, so use separate threads when people's memories must stay apart.
 
 See [eve's memory documentation](https://eve.dev/docs/memory#scope) for scope resolvers and the [multi-tenant memory pattern](https://eve.dev/docs/patterns/multi-tenant-memory) for scoping memory by tenant and user in non-Slack channels.
 
@@ -176,7 +177,7 @@ Each slot binds a provider to a scope. eve owns the slot and decides when memory
 | Attribution and supersession of recalled messages | Retention and deletion |
 | Qualifying provider tools as `<slot>__<tool>` | Which model-facing tools to offer |
 
-Because of this split, changing a slot's `provider` leaves its scope, namespace, and visibility unchanged. Recalled content always reaches the model as user-role messages, never as system instructions.
+Because of this split, changing a slot's `provider` leaves its scope and namespace unchanged. Recalled content always reaches the model as user-role messages, never as system instructions.
 
 ### Compare providers
 
@@ -242,11 +243,11 @@ Supermemory captures every completed turn, so channel memory will also hold pers
 | Supermemory | `pnpm exec eve add memory/supermemory` | `supermemory({ apiKey })` | `SUPERMEMORY_API_KEY` |
 | Upstash AgentKit | `pnpm exec eve add memory/upstash-agentkit` | `redisMemory({ topK: 5 })` from `@upstash/agentkit-eve/memory` | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
 | Kybernesis Arcana | `pnpm exec eve add memory/arcana` | `arcanaMemory({ apiKey, workspace })` from `@kybernesis/arcana/memory` | `ARCANA_API_KEY`, `ARCANA_WORKSPACE` |
-| Hindsight | `pnpm add @vectorize-io/hindsight-eve` | `hindsightMemory()` from `@vectorize-io/hindsight-eve` | `HINDSIGHT_API_KEY`, plus `HINDSIGHT_API_URL` for a self-hosted server |
+| Hindsight | `pnpm exec eve add memory/hindsight` | `hindsightMemory()` from `@vectorize-io/hindsight-eve` | `HINDSIGHT_API_KEY`, plus `HINDSIGHT_API_URL` for a self-hosted server |
 
 `topK` sets how many facts Upstash AgentKit recalls. To have Arcana capture completed turns automatically, add `capture: { enabled: true }` to its options.
 
-Install Hindsight with `pnpm add` and create the slot file yourself, because `eve add extension/hindsight` writes an older setup that shares one memory store across every user. Hindsight gives each scope its own memory bank by default, so leave `HINDSIGHT_BANK_ID` unset in this multi-user agent. Pass `capture: false` to `hindsightMemory()` when a slot should only recall, such as channel memory that shouldn't record personal statements automatically.
+Hindsight gives each scope its own memory bank by default, so leave `HINDSIGHT_BANK_ID` unset in this multi-user agent. Pass `capture: false` to `hindsightMemory()` when a slot should only recall, such as channel memory that shouldn't record personal statements automatically.
 
 To keep file memory's model-curated document but store it in Redis instead of Vercel Blob, use Upstash AgentKit's document backend:
 
@@ -292,7 +293,7 @@ Create a provider with `defineMemoryProvider()` from `eve/memory`. It accepts th
 
 | Surface | Handlers | Responsibility |
 | --- | --- | --- |
-| `recall` | `"turn.started"` (required), `"compaction.completed"` | Return messages to place in model context |
+| `recall` | `"turn.started"` (required) | Return messages to place in model context |
 | `capture` | `"turn.completed"`, `"compaction.requested"` | Observe settled history and write to the store |
 | `tools` | One function | Return model-facing operations bound to the locked scope |
 
@@ -309,14 +310,13 @@ Every handler receives a context with these fields:
 | `abortSignal` | Cancellation signal for the operation |
 | `session` | Session ID, authentication, and other session fields |
 
-When a session's turns approach the model's context window, eve compacts them by summarizing older turns into a checkpoint. The contents of `messages`, and any extra fields, depend on when eve calls the handler:
+When a session's turns approach the model's context window, eve compacts them by summarizing older turns into a checkpoint. Recalled messages stay outside the conversation history, so compaction never summarizes them. The contents of `messages`, and any extra fields, depend on when eve calls the handler:
 
 | Phase | Handler | `messages` contains | Extra fields |
 | --- | --- | --- | --- |
-| `turn.started` | `recall["turn.started"]` | History before recall. The new message is in `turn.input`. | `turn`, with the turn `id`, `input` messages, and `sequence` |
+| `turn.started` | `recall["turn.started"]` | The conversation the turn's first model call reads, including the new message | `turn`, with the turn `id`, `input` messages, and `sequence` |
 | `turn.completed` | `capture["turn.completed"]` | Settled history after a successful turn | `turn`, with the turn `id`, `input` messages, and `sequence` |
-| `compaction.requested` | `capture["compaction.requested"]` | History before the checkpoint changes | `compaction.modelId` and `compaction.usageInputTokens`. `turn` is `null` for standalone compaction. |
-| `compaction.completed` | `recall["compaction.completed"]` | The checkpoint plus the retained recalled messages | `compaction.modelId`. `turn` may be `null`. |
+| `compaction.requested` | `capture["compaction.requested"]` | History before the checkpoint changes | `compaction.modelId` and `compaction.usageInputTokens`. `turn` is `null` for a compaction between turns. |
 
 ### 1. Connect your store
 
@@ -332,7 +332,7 @@ Always pass `ctx.memory.scope.key` as the partition. Constraining every read and
 
 ### 2. Recall context before each turn
 
-eve calls `recall["turn.started"]` before the model call, after resolving and locking the scope for every active slot. Create the provider in `agent/lib/notes-memory.ts`:
+eve calls `recall["turn.started"]` before the first model call of each turn, after resolving and locking the scope for every active slot, and again when a different person sends a message in the session. Create the provider in `agent/lib/notes-memory.ts`:
 
 ```ts
 import { defineMemoryProvider } from "eve/memory";
@@ -365,7 +365,7 @@ Return `{ messages }`, `null`, or `undefined`. Each message needs non-blank `con
 | No `id` | Accumulates, even when the content repeats |
 | Earlier `id` left out of a result | The earlier message stays, because recall can't retract |
 
-Implement `recall["compaction.completed"]` to refresh context after eve compacts a long session. `ctx.turn` may be `null` in that phase, so don't read `ctx.turn.input` there without a fallback.
+What a turn recalls stays in model context for the rest of the session, and compaction leaves it in place, so a provider doesn't recall again after eve compacts a long session.
 
 ### 3. Capture turns and expose tools
 
@@ -420,7 +420,7 @@ eve may replay a handler with the same operation ID, so pass `ctx.operationId` a
 
 eve qualifies each tool key as `<slot>__<key>`, so `forget` in a slot named `notes` reaches the model as `notes__forget`. The qualified name must start with a letter, use only letters, digits, underscores, or dashes, and stay within 64 characters. Schemas, `approval`, `outputSchema`, and `toModelOutput` work as they do for tools under `agent/tools/`. Use `approval` to require confirmation before the model saves or deletes memory.
 
-Each tool closes over the scope locked for the current turn, so the model can't redirect it to another user or channel. After a restart or redeployment, eve calls `tools()` again with the captured context to replay tool calls.
+Each tool closes over the scope locked for the current turn, so the model can't redirect it to another user or channel. After a restart within the same turn, eve calls `tools()` again with the same scope.
 
 ### 4. Bind the provider to a slot
 
@@ -458,7 +458,7 @@ Add unit tests for your provider beside it, as [scope.test.ts](agent/lib/memory/
 Every provider must:
 
 - Use `memory.scope.key` in every read and write. For semantic retrieval, include the key in the query itself rather than filtering a global search afterward.
-- Deduplicate by operation ID, because eve may replay a handler with the same ID, and replaying a recall with a different result is an error.
+- Deduplicate by operation ID, because eve may run a handler again with the same ID, such as when an interrupted step retries.
 - Enforce your own size limits and retention policies, because eve doesn't truncate or expire provider content.
 - Treat recalled content as untrusted user data, even when your provider wrote it.
 
@@ -480,18 +480,17 @@ How a handler failure affects the turn depends on when the handler runs:
 
 | Handler | When it throws or returns an invalid result |
 | --- | --- |
-| `recall["turn.started"]` | The turn fails before the model call, and no slot's recalled messages are saved. If the turn was already cancelled, eve treats the error as cancellation. |
+| `recall["turn.started"]` | The turn fails before the model call, and the next model call recalls again. If the turn was already cancelled, eve treats the error as cancellation. |
 | `capture["turn.completed"]` | eve logs the error after the response and leaves the completed turn unchanged. |
-| `capture["compaction.requested"]` | Session history stays unchanged. |
-| `recall["compaction.completed"]` | Automatic compaction fails the turn. Standalone compaction logs the error and returns the session to waiting, because the checkpoint is already written. |
-| `tools()` | eve logs the error and omits the provider's tools for that turn. |
+| `capture["compaction.requested"]` | The compaction fails and session history stays unchanged. If the compaction ran during a turn, that turn fails. |
+| `tools()` | The turn fails before the model call. |
 
 | Symptom | Cause and fix |
 | --- | --- |
 | The same fact appears more than once | Messages without an `id` accumulate. Return a stable `id` for each record. |
 | A deleted record still appears in the current session | Recall can replace earlier messages but not retract them. Later sessions won't recall it. To update the current session, recall the same `id` with placeholder content such as "No memories are saved."; blank content fails the turn. |
 | The turn fails with a recall validation error | Check that the result only contains `messages`, each message only has `content` and `id`, `content` isn't blank, and no two messages share an `id`. |
-| The provider's tools don't reach the model | Check the logs for a `tools()` error, and confirm every qualified tool name meets the naming rules above. |
+| The provider's tools don't reach the model | Confirm that `tools()` returns them and that every qualified tool name meets the naming rules above. |
 | One user's memory appears for another | A store query isn't constrained by `memory.scope.key`. Pass the key into every search, write, and delete. |
 
 The full provider contract is in [eve's memory provider guide](https://eve.dev/docs/memory/custom-provider), and the built-in [file memory](https://eve.dev/docs/memory/file) provider is a working reference.
@@ -507,6 +506,26 @@ SLACK_IDENTITY_EXCLUDED_USER_IDS=U0123456789,U0987654321
 ```
 
 Excluded users can still interact with the agent; this setting only skips their profile lookups. The lookup code and its tests are in [identity.ts](agent/lib/integrations/slack/identity.ts) and [identity.test.ts](agent/lib/integrations/slack/identity.test.ts).
+
+## Respond to edited messages
+
+When someone edits a message that mentioned the agent, or a DM they sent it, eve can deliver the edit to the agent as a new turn. The template ignores edits, so fixing a typo never makes the agent reply twice. To deliver edits instead, pass an `onMessageEdited` handler in [agent/channels/slack.ts](agent/channels/slack.ts):
+
+```ts
+import {
+  createSlackChannel,
+  handleExplicitInvocation,
+} from "../lib/integrations/slack/channel";
+
+export default createSlackChannel({
+  onMessageEdited: (ctx, edit) =>
+    ctx.isBotMentioned() || edit.message.channelId.startsWith("D")
+      ? handleExplicitInvocation(ctx, edit.message)
+      : null,
+});
+```
+
+eve passes this handler every edit a person makes in a thread the agent has already answered in, including replies that never mentioned it. The example delivers only edits to DMs and to messages that mention the agent, before or after the edit, and `handleExplicitInvocation` drops the rest of what it would drop for a new message, such as edits by bots. The model sees the changed lines and the full edited message. Add eve's `no_reply` tool with `pnpm exec eve add tool/no_reply`, then tell the agent in [agent/instructions.md](agent/instructions.md) to use it when an edit changes nothing it needs to act on. See [eve's guide to message edits](https://eve.dev/docs/channels/slack#handle-message-edits) for the Slack events and permissions that edits need.
 
 ## Give the agent shared reference files
 
@@ -614,13 +633,24 @@ pnpm exec eve info
 pnpm build
 ```
 
+`pnpm validate` runs two kinds of tests, and neither calls a model provider, Slack, or your memory storage:
+
+| Command | What it checks |
+| --- | --- |
+| `pnpm test` | Unit tests beside the code under `agent/`, such as memory scopes, Slack handlers, and the session limit |
+| `pnpm test:e2e` | The agent running in eve's local server, with a scripted model in place of the real one |
+
+The end-to-end tests live in [e2e/](e2e/). They check which tools the model is offered, that each memory is saved, recalled, and removed through its own tools, and that a session pauses at its input limit. `e2e/agent/` re-exports the files under `agent/`, so when you add a memory slot, a tool, or an instructions file, add a matching one-line file there. `pnpm test` names any file that's missing. If you add or enable a tool, also update the expected list in [e2e/evals/tools.eval.ts](e2e/evals/tools.eval.ts). The test files also hold type assertions, which `pnpm typecheck` checks.
+
+The memory checks in [e2e/evals/memory.eval.ts](e2e/evals/memory.eval.ts) assume file memory, which keeps its data in the test server's own process. If you switch a slot to [another provider](#choose-a-different-memory-provider), the end-to-end tests load that provider and need its credentials, so rewrite those checks for the provider's tools or remove them.
+
 Save any environment variable changes with the [CLI commands above](#change-environment-variables), then deploy:
 
 ```sh
 vercel deploy --prod
 ```
 
-The automated tests don't call Slack or your memory storage, so test in Slack after deploying. Slack events reach only your production deployment unless you set up a separate preview connector as described in [eve's guide to testing a preview branch](https://eve.dev/docs/channels/slack#test-a-preview-branch). Tell the agent a personal preference, then a preference for the whole channel, and confirm it saves each to the right memory. Reply from a second Slack account and check that only the channel preference applies to them. Then start a new thread and ask the agent what it remembers about you and the channel.
+The automated tests can't cover Slack delivery or hosted storage, so test in Slack after deploying. Slack events reach only your production deployment unless you set up a separate preview connector as described in [eve's guide to testing a preview branch](https://eve.dev/docs/channels/slack/reference#test-a-preview-branch). Tell the agent a personal preference, then a preference for the whole channel, and confirm it saves each to the right memory. Reply from a second Slack account and check that only the channel preference applies to them. Then start a new thread and ask the agent what it remembers about you and the channel.
 
 ## Set up an existing project
 
@@ -642,7 +672,7 @@ vercel connect create slack --name memory-agent \
 vercel connect attach slack/memory-agent
 ```
 
-Follow the browser prompts to connect the agent to your Slack workspace. If you choose another name, use it in the attach command and `SLACK_CONNECTOR` below. Events go to the production deployment at `/eve/v1/slack`. See [eve's Slack guide](https://eve.dev/docs/channels/slack) for event subscriptions and troubleshooting.
+Follow the browser prompts to connect the agent to your Slack workspace. If you choose another name, use it in the attach command and `SLACK_CONNECTOR` below. Events go to the production deployment at `/eve/v1/slack`. See [eve's Slack guide](https://eve.dev/docs/channels/slack) for event subscriptions and its [reference](https://eve.dev/docs/channels/slack/reference#troubleshoot-slack-delivery) for troubleshooting.
 
 ### Store memory
 

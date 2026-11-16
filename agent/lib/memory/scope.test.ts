@@ -1,25 +1,16 @@
-import type { MemoryScopeContext } from "eve/memory";
-import { describe, expect, it } from "vitest";
+import type { MemoryScopeDefinition } from "eve/memory";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
+import {
+  localDevCaller,
+  memoryScopeContext,
+  slackCaller,
+} from "../testing/memory";
+import type { Caller } from "../testing/memory";
 import { bySlackChannel } from "./scope";
 
-type Caller = MemoryScopeContext["session"]["auth"]["current"];
-
-const slackCaller = (overrides: Partial<NonNullable<Caller>> = {}): Caller => ({
-  attributes: { channel_id: "C123", team_id: "T123", user_id: "U123" },
-  authenticator: "slack-webhook",
-  issuer: "slack:T123",
-  principalId: "slack:T123:U123",
-  principalType: "user",
-  ...overrides,
-});
-
 const scopeFor = (current: Caller) =>
-  bySlackChannel({
-    abortSignal: new AbortController().signal,
-    channel: {},
-    session: { auth: { current, initiator: current }, id: "session-1" },
-  });
+  bySlackChannel(memoryScopeContext(current));
 
 describe("bySlackChannel", () => {
   it("scopes Slack users to their installation and channel", () => {
@@ -48,14 +39,7 @@ describe("bySlackChannel", () => {
   });
 
   it("uses the shared local-dev scope during local development", () => {
-    expect(
-      scopeFor({
-        attributes: {},
-        authenticator: "local-dev",
-        principalId: "local-dev",
-        principalType: "local-dev",
-      })
-    ).toBe("local-dev");
+    expect(scopeFor(localDevCaller)).toBe("local-dev");
   });
 
   it("keeps the same channel ID separate across Slack workspaces", () => {
@@ -65,6 +49,19 @@ describe("bySlackChannel", () => {
     );
     expect(first).toStrictEqual(["slack-channel", "slack:T123", "C123"]);
     expect(second).toStrictEqual(["slack-channel", "slack:T999", "C123"]);
+  });
+
+  it("is a scope resolver eve's memory slots accept", () => {
+    expectTypeOf(bySlackChannel).toExtend<MemoryScopeDefinition>();
+  });
+
+  it("never falls back to a channel named in the session's channel metadata", () => {
+    expect(
+      bySlackChannel({
+        ...memoryScopeContext(slackCaller({ attributes: {} })),
+        channel: { kind: "channel:slack", metadata: { channel_id: "C999" } },
+      })
+    ).toBeNull();
   });
 
   it.each(["c123", "C", "W123", "U123", "", "C123\n", "C-123"])(
