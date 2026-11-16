@@ -1,8 +1,10 @@
 import { defineAgent } from "eve";
 
+import { exceedsSessionInputBudget } from "./lib/limits";
+
 export default defineAgent({
   limits: {
-    maxInputTokensPerSession: 300_000,
+    sessionUsage: exceedsSessionInputBudget,
   },
-  model: "openai/gpt-6.1-sol-fast",
+  model: "anthropic/claude-fable-5.2",
 });

@@ -14,12 +14,13 @@ Once you've deployed the agent, add it to a Slack channel and @mention it to sta
 
 ## Tech stack
 
-| Layer             | Technology     |
-| ----------------- | -------------- |
-| Agent framework   | eve            |
-| Slack integration | Vercel Connect |
-| Memory storage    | Vercel Blob    |
-| Sandbox           | Vercel Sandbox |
+| Layer             | Technology                                 |
+| ----------------- | ------------------------------------------ |
+| Agent framework   | eve                                        |
+| Slack integration | Vercel Connect                             |
+| Memory storage    | Vercel Blob                                |
+| Sandbox           | Vercel Sandbox                             |
+| Model             | Claude Fable 5.2 through Vercel AI Gateway |
 
 ## How memory works
 
@@ -71,7 +72,7 @@ pnpm exec eve info
 pnpm build
 ```
 
-Use `pnpm fix` to apply automatic formatting and lint fixes. When the checks pass, deploy with:
+`pnpm validate` includes unit tests and end-to-end tests that run the agent with a scripted model, so it needs no credentials. Use `pnpm fix` to apply automatic formatting and lint fixes. When the checks pass, deploy with:
 
 ```sh
 vercel deploy --prod
@@ -85,7 +86,7 @@ vercel deploy --prod
 | What the agent remembers about channels | `description` in [agent/memory/channel-preferences.ts](agent/memory/channel-preferences.ts) |
 | Who shares a memory | `scope` in each memory file |
 | When to save, and response style | [agent/instructions.md](agent/instructions.md) |
-| Model and session limits | [agent/agent.ts](agent/agent.ts) |
+| Model and session limits | [agent/agent.ts](agent/agent.ts) and [agent/lib/limits.ts](agent/lib/limits.ts) |
 
 For more ways to customize the agent, including how to build your own memory provider, see [CUSTOMIZATION.md](CUSTOMIZATION.md).
 

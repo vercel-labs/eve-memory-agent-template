@@ -1,0 +1,8 @@
+{
+  "name": "eve-memory-agent-e2e",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "eve": "^1.0.0"
+  }
+}

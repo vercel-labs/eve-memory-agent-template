@@ -10,7 +10,7 @@ These instructions are for agents maintaining the repository. The assistant's be
 | --- | --- |
 | Assistant behavior, memory rules, and response style | `agent/instructions.md` |
 | Current time context | `agent/instructions/current-time.ts` |
-| Model and session limits | `agent/agent.ts` |
+| Model and session limits | `agent/agent.ts` and `agent/lib/limits.ts` |
 | Memory slots | `agent/memory/user-preferences.ts` and `agent/memory/channel-preferences.ts` |
 | Channel memory scope | `agent/lib/memory/scope.ts` |
 | Slack channel, sender auth, and profile lookups | `agent/channels/slack.ts` and `agent/lib/integrations/slack/` |
@@ -18,6 +18,7 @@ These instructions are for agents maintaining the repository. The assistant's be
 | Built-in tool overrides | `agent/tools/` |
 | Local and hosted sandbox selection | `agent/sandbox.ts` |
 | Shared test fixtures | `agent/lib/testing/` |
+| End-to-end tests and their fixture agent | `e2e/` |
 | Setup and customization guidance | `README.md`, `CUSTOMIZATION.md`, and `.env.example` |
 
 Keep the template focused on memory. Features such as Slack tables, charts, or approval cards belong in a project built from the template, not in the template itself. Optional extensions, such as shared reference files on Vercel Drives, are documented in `CUSTOMIZATION.md` and are not enabled by default.
@@ -41,7 +42,11 @@ Prefer native integrations. When installation is part of the task, use `pnpm exe
 
 ## Implementation conventions
 
-Keep files in `agent/tools/` small, with reusable behavior in `agent/lib/`. The template's tool files only disable eve built-ins. Disabling `write_file` steers the model toward the memory tools. The web and delegation tools are removed because a memory agent doesn't need them and they would give planted instructions a way to send data out. `bash` and `read_file` stay enabled for the Drives extension, and `agent/sandbox.ts` denies outbound network access when deployed. The filename exemption for `agent/tools/*.ts` in `oxlint.config.ts` exists because eve matches built-in tools by filename.
+Keep files in `agent/tools/` small, with reusable behavior in `agent/lib/`. The template's tool files only disable eve built-ins. Disabling `write_file` and `edit_file` steers the model toward the memory tools. The web and delegation tools are removed because a memory agent doesn't need them and they would give planted instructions a way to send data out. `bash` and `read_file` stay enabled for the Drives extension, and `agent/sandbox.ts` denies outbound network access when deployed. The filename exemption for `agent/tools/*.ts` in `oxlint.config.ts` exists because eve matches built-in tools by filename.
+
+The Slack channel drops edits to earlier messages through `ignoreMessageEdit`, because eve would otherwise run each edit as a new turn and the agent has no `no_reply` tool. Keep that default unless delivering edits is part of the request.
+
+`handleExplicitInvocation` returns an empty `history` on purpose. eve then passes earlier thread replies as one attributed transcript, as it did before 1.0, instead of replaying them as conversation turns when a mention starts a session. Keep it, because the instructions tell the model to treat thread history as untrusted data, and a replayed turn from another person reads like a request from the current sender.
 
 Preserve the strict TypeScript and Ultracite configuration. Do not disable rules to make a port or refactor pass.
 
@@ -87,18 +92,19 @@ Verify behavior against code and current CLI help. When reviewing a passage, rea
 
 ## Validation
 
-Choose checks that establish the changed behavior. Tests live beside their implementations under `agent/`.
+Choose checks that establish the changed behavior. Unit tests live beside their implementations under `agent/`; eve ignores `*.test.ts` files when it discovers agent files. Their `expectTypeOf` assertions do nothing at runtime and are enforced by `pnpm typecheck`. End-to-end tests live under `e2e/evals/` and run a fixture agent in `e2e/agent/` that re-exports the template's memory slots, tools, instructions, and sandbox, with a scripted model from `e2e/agent/lib/scripted-model.ts` in place of the configured one. They need no credentials.
 
 | Command | Purpose |
 | --- | --- |
 | `pnpm check` | Formatting and lint rules |
 | `pnpm fix` | Apply formatting and lint fixes |
-| `pnpm typecheck` | TypeScript checks |
-| `pnpm exec vitest run <test-file>` | Tests for the changed behavior |
+| `pnpm typecheck` | TypeScript checks, including the type assertions in tests |
+| `pnpm exec vitest run <test-file>` | Unit tests for the changed behavior |
+| `pnpm test:e2e` | End-to-end tests against eve's local server |
 | `pnpm validate` | Formatting, lint, types, all tests, and unused-code checks |
 | `pnpm exec eve info` | Agent diagnostics |
 | `pnpm build` | Production compilation |
 
-For code changes, run the relevant tests and static checks. Use `pnpm validate` for changes spanning several parts of the agent, and run `pnpm build` when changing memory slots, channels, the sandbox, or other framework registration. Add tests for meaningful behavior changes, especially scope rules.
+For code changes, run the relevant tests and static checks. Use `pnpm validate` for changes spanning several parts of the agent, and run `pnpm build` when changing memory slots, channels, the sandbox, or other framework registration. Add tests for meaningful behavior changes, especially scope rules. When you add a file under `agent/memory/`, `agent/tools/`, or `agent/instructions/`, add the one-line re-export under `e2e/agent/` that `project.test.ts` asks for, and update `e2e/evals/tools.eval.ts` when the set of tools the model can call changes.
 
 For documentation-only changes, check formatting and affected links or examples. Typecheck new code samples before adding them to the docs. Do not run the full application test suite for a prose edit. State which checks ran and distinguish source inspection from behavior tested against live services.

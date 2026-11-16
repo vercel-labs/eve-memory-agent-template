@@ -16,14 +16,15 @@
     "fix": "ultracite fix",
     "prepare": "lefthook install",
     "test": "vitest run",
-    "validate": "pnpm run check && pnpm run typecheck && pnpm run test && pnpm run knip",
+    "test:e2e": "cd e2e && eve eval --strict",
+    "validate": "pnpm run check && pnpm run typecheck && pnpm run test && pnpm run test:e2e && pnpm run knip",
     "knip": "knip"
   },
   "dependencies": {
-    "@vercel/connect": "2.2.0",
-    "ai": "^7.0.128",
-    "eve": "^0.75.0",
-    "just-bash": "3.1.0",
+    "@vercel/connect": "2.9.3",
+    "ai": "^7.0.172",
+    "eve": "^1.0.0",
+    "just-bash": "3.6.0",
     "zod": "4.5.4"
   },
   "devDependencies": {
